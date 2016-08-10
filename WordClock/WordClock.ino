@@ -5,12 +5,13 @@
 
 //Array to store which words to light, anything but 0 means light. Use shift() to write to display
 byte display[20];
+
 #pragma region Word to pin mapping
 /*
 pin		word
 |-------|--
 0		4
-1		över
+1		ï¿½ver
 2		3
 3		5
 4		9
@@ -21,7 +22,7 @@ pin		word
 9		12
 10		2
 11		fem
-12		klockan är
+12		klockan ï¿½r
 13		kvart
 14		tjugo
 15		tio
@@ -46,7 +47,7 @@ const byte digitToDisplay[12] = { 5,10,2,0,3,8,6,19,4,7,18,9 };
 
 #pragma endregion
 
-#pragma region Birtdays definition
+#pragma region Birthdays definition
 
 typedef struct Day
 {
@@ -60,15 +61,15 @@ const Day birthdays[]
 	{14,4},
 	{29,8}
 };
-const byte birtdayCount = sizeof(birthdays) / 2;
+const byte birthdayCount = sizeof(birthdays) / 2;
 
-bool IsBirtday(byte date, byte month)
+bool IsBirthday(byte date, byte month)
 {
 	byte i = 0;
-	for (i = 0; i < birtdayCount; i++)
+	for (i = 0; i < birtgdayCount; i++)
 	{
-		Day birtday = birthdays[i];
-		if (birtday.date == date && birtday.month == month)
+		Day birthday = birthdays[i];
+		if (birthday.date == date && birthday.month == month)
 			return true;
 	}
 	return false;
@@ -143,7 +144,7 @@ void loop()
 
 	Time time = rtc.getTime();
 
-	if (IsBirtday(time.date,time.mon))
+	if (IsBirthday(time.date,time.mon))
 	{
 		Party();
 	}
@@ -221,16 +222,16 @@ void DisplayTime(byte hour, byte min)
 		display[I] = 1;
 	}
 
-	
+
 	if (min>=23)
 		hour++;
-	
+
 	if (hour > 12)
 		hour -= 12;
 
 	if (hour == 0)
 		hour += 12;
-	
+
 	hour--;
 
 	display[digitToDisplay[hour]] = 1;
@@ -296,7 +297,7 @@ void Party()
 	delay(1000);
 }
 void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth) {
-	// Displays a rainbow spread over a few LED's (numRGBLeds), which shifts in hue. 
+	// Displays a rainbow spread over a few LED's (numRGBLeds), which shifts in hue.
 	// The rainbow can be wider then the real number of LED's.
 
 	ShiftPWM.SetAll(0);
