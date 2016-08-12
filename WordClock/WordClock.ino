@@ -1,10 +1,15 @@
-
 #define CLOCK_PIN 5
 #define DATA_PIN 8
 #define LATCH_PIN 7
 
 //Array to store which words to light, anything but 0 means light. Use shift() to write to display
 byte display[20];
+
+//RTC-object
+#include <DS3231.h>
+DS3231 rtc(SDA, SCL);
+
+void DisplayTime(Time time);
 
 #pragma region Word to pin mapping
 /*
@@ -66,7 +71,7 @@ const byte birthdayCount = sizeof(birthdays) / 2;
 bool IsBirthday(byte date, byte month)
 {
 	byte i = 0;
-	for (i = 0; i < birtgdayCount; i++)
+	for (i = 0; i < birthdayCount; i++)
 	{
 		Day birthday = birthdays[i];
 		if (birthday.date == date && birthday.month == month)
@@ -96,66 +101,68 @@ int numRGBleds = numRegisters * 8 / 3;
 
 #pragma endregion
 
+#pragma region SummerTimeCalculations
+/*
+Algoritms used:
+
+The formula used to calculate the beginning of European Summer Time is
+Sunday (31 − ((((5 × y) ÷ 4) + 4) mod 7)) March at 01:00 UTC
+
+To calculate the end of European Summer Time, a variant of the formula above used for October:
+Sunday (31 − ((((5 × y) ÷ 4) + 1) mod 7)) October at 01:00 UTC
+
+Taken from
+https://en.wikipedia.org/wiki/Summer_Time_in_Europe
+*/
+
+byte summerTimeStartDate;
+byte summerTimeEndDate;
+
+uint16_t lastYearChecked;
 
 
-
-
-
-
-//RTC-object
-#include <DS3231.h>
-DS3231 rtc(SDA, SCL);
-
-#include <eeprom.h>
-
-
-
-
-void setup()
+void CalculateSummerTimeDates(uint16_t year)
 {
-	//Initialize pins
-	pinMode(CLOCK_PIN, OUTPUT);
-	pinMode(DATA_PIN, OUTPUT);
-	pinMode(LATCH_PIN, OUTPUT);
+	summerTimeStartDate = 31 - ((((5 * year) / 4) + 4) % 7);
+	summerTimeEndDate = 31 - ((((5 * year) / 4) + 1) % 7);
 
-	//Initialize Serial
-	Serial.begin(128000);
+	lastYearChecked = year;
+}
 
-	//Initialize Timer0 responsible for serial communications
-	//SetupTimer0();
+bool IsSummerTime(byte date, byte month, uint16_t year)
+{
+	if (year != lastYearChecked)
+	{
+		CalculateSummerTimeDates(year);
+	}
 
-	//Initialize the rtc
-	rtc.begin();
-
-
-	//Initialize ShiftPWM library
-	ShiftPWM.SetAmountOfRegisters(numRegisters);
-	ShiftPWM.SetPinGrouping(1);
-	ShiftPWM.Start(pwmFrequency, maxBrightness);
-
+	if (month >= 4 && month <= 9)
+	{
+		return true;
+	}
+	if (month == 3 && date > summerTimeStartDate)
+	{
+		return true;
+	}
+	if (month == 10 && date < summerTimeEndDate)
+	{
+		return true;
+	}
+	return false;
 }
 
 
-void loop()
+#pragma endregion
+
+
+
+
+void DisplayTime(Time time)
 {
-	HandleSerial();
+	byte hour;
+	byte min;
 
 
-
-	Time time = rtc.getTime();
-
-	if (IsBirthday(time.date,time.mon))
-	{
-		Party();
-	}
-	else
-	{
-		DisplayTime(time.min, time.sec);
-	}
-}
-
-void DisplayTime(byte hour, byte min)
-{
 	//Turn off all rgb-lights
 	ShiftPWM.SetAll(0);
 
@@ -164,8 +171,19 @@ void DisplayTime(byte hour, byte min)
 		display[i] = 0;
 	display[KLOCKAN] = 1;
 
+	hour = time.hour;
+	min = time.min;
 
-	if (min >= 3 && min < 8)
+
+
+
+
+
+	if (min < 3)
+	{
+
+	}
+	else if (min < 8)
 	{
 		display[FEM] = 1;
 		display[OVER] = 1;
@@ -222,21 +240,22 @@ void DisplayTime(byte hour, byte min)
 		display[I] = 1;
 	}
 
-
-	if (min>=23)
+	if (IsSummerTime(time.date, time.mon, time.year))
 		hour++;
 
-	if (hour > 12)
-		hour -= 12;
+	if (min >= 23)
+		hour++;
+
+	hour %= 12;
 
 	if (hour == 0)
 		hour += 12;
 
 	hour--;
 
+
+
 	display[digitToDisplay[hour]] = 1;
-
-
 
 	shift();
 
@@ -287,11 +306,11 @@ void Party()
 
 
 	//  A moving rainbow for RGB leds:
-	rgbLedRainbow(numRGBleds, 5, 3, numRegisters * 8 / 3); // Fast, over all LED's
+	rgbLedRainbow(numRGBleds, 5, 10, numRegisters * 8 / 3); // Fast, over all LED's
 
 
 
-	rgbLedRainbow(numRGBleds, 10, 3, numRegisters * 8 / 3 * 4); //slower, wider than the number of LED's
+	rgbLedRainbow(numRGBleds, 10, 10, numRegisters * 8 / 3 * 4); //slower, wider than the number of LED's
 
 
 	delay(1000);
@@ -312,6 +331,56 @@ void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth
 	}
 }
 
+void setup()
+{
+	//Initialize pins
+	pinMode(CLOCK_PIN, OUTPUT);
+	pinMode(DATA_PIN, OUTPUT);
+	pinMode(LATCH_PIN, OUTPUT);
+
+	byte i;
+	for (i = 0; i < 20; i++)
+		display[i] = 0;
+	shift();
+
+
+	//Initialize Serial
+	Serial.begin(128000);
+
+	//Initialize Timer0 responsible for serial communications
+	//SetupTimer0();
+
+	//Initialize the rtc
+	rtc.begin();
+
+
+	//Initialize ShiftPWM library
+	ShiftPWM.SetAmountOfRegisters(numRegisters);
+	ShiftPWM.SetPinGrouping(1);
+	ShiftPWM.Start(pwmFrequency, maxBrightness);
+
+	CalculateSummerTimeDates(rtc.getTime().year);
+
+}
+
+
+void loop()
+{
+	HandleSerial();
+
+
+
+	Time time = rtc.getTime();
+
+	if (IsBirthday(time.date, time.mon))
+	{
+		Party();
+	}
+	else
+	{
+		DisplayTime(time);
+	}
+}
 
 
 
@@ -378,8 +447,17 @@ void HandleSerial()
 			WaitForSerial();
 			sec = Serial.parseInt();
 
+			if (IsSummerTime(day, month, year))
+			{
+				hour--;
+			}
+
 			rtc.setDate(day, month, year);
 			rtc.setTime(hour, min, sec);
+
+
+
+
 
 			Serial.println("Time Set!");
 		}
