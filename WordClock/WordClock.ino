@@ -2,8 +2,11 @@
 #define DATA_PIN 8
 #define LATCH_PIN 7
 
+
+
 //Array to store which words to light, anything but 0 means light. Use shift() to write to display
-byte display[20];
+uint32_t display;
+
 
 //RTC-object
 #include <DS3231.h>
@@ -115,8 +118,8 @@ Taken from
 https://en.wikipedia.org/wiki/Summer_Time_in_Europe
 */
 
-byte summerTimeStartDate;
-byte summerTimeEndDate;
+uint8_t summerTimeStartDate;
+uint8_t summerTimeEndDate;
 
 uint16_t lastYearChecked;
 
@@ -129,7 +132,7 @@ void CalculateSummerTimeDates(uint16_t year)
 	lastYearChecked = year;
 }
 
-bool IsSummerTime(byte date, byte month, uint16_t year)
+bool IsSummerTime(uint8_t date, uint8_t month, uint16_t year)
 {
 	if (year != lastYearChecked)
 	{
@@ -166,10 +169,9 @@ void DisplayTime(Time time)
 	//Turn off all rgb-lights
 	ShiftPWM.SetAll(0);
 
-	//Turn off all words
-	for (byte i = 0; i < 20; i++)
-		display[i] = 0;
-	display[KLOCKAN] = 1;
+	//Turn off all words except "Klockan"
+	display = (1 << KLOCKAN);
+
 
 	hour = time.hour;
 	min = time.min;
@@ -185,59 +187,59 @@ void DisplayTime(Time time)
 	}
 	else if (min < 8)
 	{
-		display[FEM] = 1;
-		display[OVER] = 1;
+		display |= 1 << FEM;
+		display |= 1 << OVER;
 	}
 	else if (min < 13)
 	{
-		display[TIO] = 1;
-		display[OVER] = 1;
+		display |= 1 << TIO;
+		display |= 1 << OVER;
 	}
 	else if (min < 18)
 	{
-		display[KVART] = 1;
-		display[OVER] = 1;
+		display |= 1 << KVART;
+		display |= 1 << OVER;
 	}
 	else if (min < 23)
 	{
-		display[TJUGO] = 1;
-		display[OVER] = 1;
+		display |= 1 << TJUGO;
+		display |= 1 << OVER;
 	}
 	else if (min < 28)
 	{
-		display[FEM] = 1;
-		display[I] = 1;
-		display[HALV] = 1;
+		display |= 1 << FEM;
+		display |= 1 << I;
+		display |= 1 << HALV;
 	}
 	else if (min < 33)
 	{
-		display[HALV] = 1;
+		display |= 1 << HALV;
 	}
 	else if (min < 38)
 	{
-		display[FEM] = 1;
-		display[OVER] = 1;
-		display[HALV] = 1;
+		display |= 1 << FEM;
+		display |= 1 << OVER;
+		display |= 1 << HALV;
 	}
 	else if (min < 43)
 	{
-		display[TJUGO] = 1;
-		display[I] = 1;
+		display |= 1 << TJUGO;
+		display |= 1 << I;
 	}
 	else if (min < 48)
 	{
-		display[KVART] = 1;
-		display[I] = 1;
+		display |= 1 << KVART;
+		display |= 1 << I;
 	}
 	else if (min < 53)
 	{
-		display[TIO] = 1;
-		display[I] = 1;
+		display |= 1 << TIO;
+		display |= 1 << I;
 	}
 	else if (min < 58)
 	{
-		display[FEM] = 1;
-		display[I] = 1;
+		display |= 1 << FEM;
+		display |= 1 << I;
 	}
 
 	if (IsSummerTime(time.date, time.mon, time.year))
@@ -255,9 +257,9 @@ void DisplayTime(Time time)
 
 
 
-	display[digitToDisplay[hour]] = 1;
+	display |= 1 << digitToDisplay[hour];
 
-	shift();
+	shift(display);
 
 
 
@@ -269,6 +271,7 @@ void DisplayTime(Time time)
 
 void Party()
 {
+	bitSet(TIMSK1, OCIE1A);
 	//Celear the display
 	ClearDisplay();
 
@@ -314,6 +317,7 @@ void Party()
 
 
 	delay(1000);
+	bitClear(TIMSK1, OCIE1A);
 }
 void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth) {
 	// Displays a rainbow spread over a few LED's (numRGBLeds), which shifts in hue.
@@ -338,10 +342,9 @@ void setup()
 	pinMode(DATA_PIN, OUTPUT);
 	pinMode(LATCH_PIN, OUTPUT);
 
-	byte i;
-	for (i = 0; i < 20; i++)
-		display[i] = 0;
-	shift();
+
+
+	shift(display);
 
 
 	//Initialize Serial
@@ -358,6 +361,8 @@ void setup()
 	ShiftPWM.SetAmountOfRegisters(numRegisters);
 	ShiftPWM.SetPinGrouping(1);
 	ShiftPWM.Start(pwmFrequency, maxBrightness);
+
+	bitClear(TIMSK1, OCIE1A);
 
 	CalculateSummerTimeDates(rtc.getTime().year);
 
@@ -380,6 +385,7 @@ void loop()
 	{
 		DisplayTime(time);
 	}
+
 }
 
 
@@ -493,17 +499,18 @@ void ClearDisplay()
 }
 
 //displays whats stored in (display)
-void shift()
+void shift(uint32_t data)
 {
-	uint8_t i;
 
 	digitalWrite(LATCH_PIN, 0);
 
-	for (i = 0; i < 20; i++) {
-		digitalWrite(DATA_PIN, display[i]);
+	for (uint8_t i = 0; i < 20; i++) {
+		digitalWrite(DATA_PIN, data & 0b1);
 
 		digitalWrite(CLOCK_PIN, 1);
 		digitalWrite(CLOCK_PIN, 0);
+
+		data = data >> 1;
 	}
 
 	digitalWrite(LATCH_PIN, 1);
