@@ -4,15 +4,10 @@
 
 
 
-//Array to store which words to light, anything but 0 means light. Use shift() to write to display
-uint32_t display;
-
-
 //RTC-object
 #include <DS3231.h>
 DS3231 rtc(SDA, SCL);
 
-void DisplayTime(Time time);
 
 #pragma region Word to pin mapping
 /*
@@ -49,7 +44,7 @@ pin		word
 #define HALV 16
 
 //Array to map digits to their pin
-const byte digitToDisplay[12] = { 5,10,2,0,3,8,6,19,4,7,18,9 };
+const byte digitToDisplay[12] = { 9, 5,10,2,0,3,8,6,19,4,7,18 };
 
 
 
@@ -109,10 +104,10 @@ int numRGBleds = numRegisters * 8 / 3;
 Algoritms used:
 
 The formula used to calculate the beginning of European Summer Time is
-Sunday (31 − ((((5 × y) ÷ 4) + 4) mod 7)) March at 01:00 UTC
+Sunday (31 − ((((5 × year) ÷ 4) + 4) mod 7)) March at 01:00 UTC
 
 To calculate the end of European Summer Time, a variant of the formula above used for October:
-Sunday (31 − ((((5 × y) ÷ 4) + 1) mod 7)) October at 01:00 UTC
+Sunday (31 − ((((5 × year) ÷ 4) + 1) mod 7)) October at 01:00 UTC
 
 Taken from
 https://en.wikipedia.org/wiki/Summer_Time_in_Europe
@@ -158,28 +153,12 @@ bool IsSummerTime(uint8_t date, uint8_t month, uint16_t year)
 #pragma endregion
 
 
-
-
-void DisplayTime(Time time)
+unsigned long GetActiveWords(Time time)
 {
-	byte hour;
-	byte min;
+	unsigned long display = 0;
 
-
-	//Turn off all rgb-lights
-	ShiftPWM.SetAll(0);
-
-	//Turn off all words except "Klockan"
-	display = (1 << KLOCKAN);
-
-
-	hour = time.hour;
-	min = time.min;
-
-
-
-
-
+	uint8_t	hour = time.hour;
+	uint8_t min = time.min;
 
 	if (min < 3)
 	{
@@ -187,60 +166,63 @@ void DisplayTime(Time time)
 	}
 	else if (min < 8)
 	{
-		display |= 1 << FEM;
-		display |= 1 << OVER;
+		display |= 1L << FEM;
+		display |= 1L << OVER;
 	}
 	else if (min < 13)
 	{
-		display |= 1 << TIO;
-		display |= 1 << OVER;
+		display |= 1L << TIO;
+		display |= 1L << OVER;
 	}
 	else if (min < 18)
 	{
-		display |= 1 << KVART;
-		display |= 1 << OVER;
+		display |= 1L << KVART;
+		display |= 1L << OVER;
 	}
 	else if (min < 23)
 	{
-		display |= 1 << TJUGO;
-		display |= 1 << OVER;
+		display |= 1L << TJUGO;
+		display |= 1L << OVER;
 	}
 	else if (min < 28)
 	{
-		display |= 1 << FEM;
-		display |= 1 << I;
-		display |= 1 << HALV;
+		display |= 1L << FEM;
+		display |= 1L << I;
+		display |= 1L << HALV;
 	}
 	else if (min < 33)
 	{
-		display |= 1 << HALV;
+		display |= 1L << HALV;
 	}
 	else if (min < 38)
 	{
-		display |= 1 << FEM;
-		display |= 1 << OVER;
-		display |= 1 << HALV;
+		display |= 1L << FEM;
+		display |= 1L << OVER;
+		display |= 1L << HALV;
 	}
 	else if (min < 43)
 	{
-		display |= 1 << TJUGO;
-		display |= 1 << I;
+		display |= 1L << TJUGO;
+		display |= 1L << I;
 	}
 	else if (min < 48)
 	{
-		display |= 1 << KVART;
-		display |= 1 << I;
+		display |= 1L << KVART;
+		display |= 1L << I;
 	}
 	else if (min < 53)
 	{
-		display |= 1 << TIO;
-		display |= 1 << I;
+		display |= 1L << TIO;
+		display |= 1L << I;
 	}
 	else if (min < 58)
 	{
-		display |= 1 << FEM;
-		display |= 1 << I;
+		display |= 1L << FEM;
+		display |= 1L << I;
 	}
+	Serial.print("After min: ");
+	Serial.println(display, HEX);
+
 
 	if (IsSummerTime(time.date, time.mon, time.year))
 		hour++;
@@ -250,23 +232,11 @@ void DisplayTime(Time time)
 
 	hour %= 12;
 
-	if (hour == 0)
-		hour += 12;
-
-	hour--;
-
-
-
-	display |= 1 << digitToDisplay[hour];
-
-	shift(display);
-
-
-
-	delay(1000);
+	display |= 1L << digitToDisplay[hour];
+	Serial.print("Returning: ");
+	Serial.println(display, HEX);
+	return display;
 }
-
-
 
 
 void Party()
@@ -316,7 +286,8 @@ void Party()
 	rgbLedRainbow(numRGBleds, 10, 10, numRegisters * 8 / 3 * 4); //slower, wider than the number of LED's
 
 
-	delay(1000);
+	ShiftPWM.SetAll(0);
+	delay(10);
 	bitClear(TIMSK1, OCIE1A);
 }
 void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth) {
@@ -335,86 +306,7 @@ void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth
 	}
 }
 
-void setup()
-{
-	//Initialize pins
-	pinMode(CLOCK_PIN, OUTPUT);
-	pinMode(DATA_PIN, OUTPUT);
-	pinMode(LATCH_PIN, OUTPUT);
-
-
-
-	shift(display);
-
-
-	//Initialize Serial
-	Serial.begin(128000);
-
-	//Initialize Timer0 responsible for serial communications
-	//SetupTimer0();
-
-	//Initialize the rtc
-	rtc.begin();
-
-
-	//Initialize ShiftPWM library
-	ShiftPWM.SetAmountOfRegisters(numRegisters);
-	ShiftPWM.SetPinGrouping(1);
-	ShiftPWM.Start(pwmFrequency, maxBrightness);
-
-	bitClear(TIMSK1, OCIE1A);
-
-	CalculateSummerTimeDates(rtc.getTime().year);
-
-}
-
-
-void loop()
-{
-	HandleSerial();
-
-
-
-	Time time = rtc.getTime();
-
-	if (IsBirthday(time.date, time.mon))
-	{
-		Party();
-	}
-	else
-	{
-		DisplayTime(time);
-	}
-
-}
-
-
-
-
-
-void SetupTimer0()
-{
-	cli();
-
-	TCCR0A = 0;
-	TCCR0B = 0;
-	TCNT0 = 0;
-
-	OCR0A = 254;//todo
-
-	TCCR0A |= (1 << WGM01);
-	TCCR0B |= (1 << CS02) | (1 << CS00);
-
-	TIMSK0 |= (1 << OCIE0A);
-
-	sei();
-	Serial.println("TimerStarted");
-}
-ISR(TIMER0_COMPA_vect)
-{
-
-}
-unsigned long lastMessageTime;
+#define WAITSERIAL() while(Serial.available()==0){}
 void HandleSerial()
 {
 
@@ -430,27 +322,27 @@ void HandleSerial()
 			int day, month, year, hour, min, sec;
 
 			Serial.println("Set day:");
-			WaitForSerial();
+			WAITSERIAL();
 			day = Serial.parseInt();
 
 			Serial.println("Set month:");
-			WaitForSerial();
+			WAITSERIAL();
 			month = Serial.parseInt();
 
 			Serial.println("Set year:");
-			WaitForSerial();
+			WAITSERIAL();
 			year = Serial.parseInt();
 
 			Serial.println("Set hour:");
-			WaitForSerial();
+			WAITSERIAL();
 			hour = Serial.parseInt();
 
 			Serial.println("Set minute:");
-			WaitForSerial();
+			WAITSERIAL();
 			min = Serial.parseInt();
 
 			Serial.println("Set second:");
-			WaitForSerial();
+			WAITSERIAL();
 			sec = Serial.parseInt();
 
 			if (IsSummerTime(day, month, year))
@@ -474,44 +366,200 @@ void HandleSerial()
 
 
 }
-void WaitForSerial()
+
+
+void setup()
 {
-	while (Serial.available() == 0) {}
+	//Initialize pins
+	pinMode(CLOCK_PIN, OUTPUT);
+	pinMode(DATA_PIN, OUTPUT);
+	pinMode(LATCH_PIN, OUTPUT);
+
+
+	ClearDisplay();
+
+	//Initialize Serial
+	Serial.begin(128000);
+
+	//Initialize Timer0 responsible for serial communications
+	//SetupTimer0();
+
+	//Initialize the rtc
+	rtc.begin();
+
+
+	//Initialize ShiftPWM library
+	ShiftPWM.SetAmountOfRegisters(numRegisters);
+	ShiftPWM.SetPinGrouping(1);
+	ShiftPWM.Start(pwmFrequency, maxBrightness);
+	ShiftPWM.SetAll(0);
+	delay(10);
+	//Turn off the timer so it doesnt steal our precous cpu-cycles when it shouldnt
+	bitClear(TIMSK1, OCIE1A);
+
+	CalculateSummerTimeDates(rtc.getTime().year);
+	InitTimer2();
+}
+
+void loop()
+{
+	HandleSerial();
+
+	Time time = rtc.getTime();
+
+	if (IsBirthday(time.date, time.mon))
+	{
+		Party();
+	}
+	else
+	{
+		unsigned long words = GetActiveWords(time);
+		UpdateDisplay(words);
+	}
+
+
+	delay(1000);
 }
 
 
+
+
+unsigned long previousWords = 0L;
+void UpdateDisplay(unsigned long words)
+{
+	if (words == previousWords)
+	{
+		return;
+	}
+
+
+
+	Fade(previousWords, words | (1L << KLOCKAN));
+	delay(20000L);
+	Fade(words | (1L << KLOCKAN), words);
+
+
+	previousWords = words;
+}
+
+unsigned long activeWords;
+unsigned long allWords;
+unsigned long risingWords;
+unsigned long fallingWords;
+uint8_t risingTrigger;
+uint8_t fallingTrigger;
+uint8_t timer_counter;
+
+volatile uint8_t cycleDone;
+
+void Fade(unsigned long fadefrom, unsigned long fadeto)
+{
+	Serial.print("Fading from: ");
+	Serial.println(fadefrom, HEX);
+	Serial.print("To: ");
+	Serial.println(fadeto, HEX);
+
+	timer_counter = 0;
+
+	allWords = fadefrom | fadeto;
+	risingWords = ~fadefrom & fadeto;
+	fallingWords = fadefrom & ~fadeto;
+	risingTrigger = 0;
+	fallingTrigger = 0;
+
+	uint8_t numIntervals = 100;
+	float R = (numIntervals*log10(2)) / log10(255);
+
+
+	for (uint8_t i = 0; i < numIntervals; i++)
+	{
+		uint8_t brightness = pow(2, (i / R));
+
+		risingTrigger = pow(2, (i / R));
+		fallingTrigger = pow(2, ((numIntervals - i) / R));
+		bitSet(TIMSK2, OCIE2A);
+
+		delay(50);
+		cycleDone = 1;
+		while (cycleDone) {}
+	}
+
+	bitClear(TIMSK2, OCIE2A);
+	shift(fadeto);
+}
+
+ISR(TIMER2_COMPA_vect)
+{
+	uint8_t shouldShift = 0;
+	if (timer_counter == 0)
+	{
+		activeWords = allWords;
+		shouldShift = 1;
+	}
+	if (timer_counter == risingTrigger)
+	{
+		activeWords &= ~risingWords;
+		shouldShift = 1;
+	}
+	if (timer_counter == fallingTrigger)
+	{
+		activeWords &= ~fallingWords;
+		shouldShift = 1;
+	}
+
+	if (shouldShift)
+		shift(activeWords);
+
+	timer_counter++;
+	cycleDone = 0;
+}
+
+
+void InitTimer2()
+{
+	cli();
+
+	TCCR2A = 0;// set entire TCCR2A register to 0
+	TCCR2B = 0;// same for TCCR2B
+	TCNT2 = 0;//initialize counter value to 0
+			  // set compare match register for 8khz increments
+	OCR2A = 20;// = (16*10^6) / (8000*8) - 1 (must be <256)
+			   // turn on CTC mode
+	TCCR2A |= (1 << WGM21);
+	// Set CS21 bit for 8 prescaler
+	TCCR2B |= (1 << CS21);
+
+	sei();
+}
 
 
 
 //Clears the display, sets all lamps to 0
 void ClearDisplay()
 {
-	byte i;
-
-	digitalWrite(LATCH_PIN, 0);
-	digitalWrite(DATA_PIN, 0);
-	for (i = 0; i < 20; i++)
-	{
-		digitalWrite(CLOCK_PIN, 1);
-		digitalWrite(CLOCK_PIN, 0);
-	}
-	digitalWrite(LATCH_PIN, 1);
+	shift(0);
 }
 
 //displays whats stored in (display)
-void shift(uint32_t data)
+void shift(unsigned long data)
 {
-
-	digitalWrite(LATCH_PIN, 0);
-
 	for (uint8_t i = 0; i < 20; i++) {
-		digitalWrite(DATA_PIN, data & 0b1);
+		if (data & 0b0001)
+			PORTB |= (1 << PB0);
+		else
+			PORTB &= (~(1 << PB0));
+		//digitalWrite(DATA_PIN, data & 0b0001);
 
-		digitalWrite(CLOCK_PIN, 1);
-		digitalWrite(CLOCK_PIN, 0);
+		PORTD |= (1 << PD5);
+		PORTD &= (~(1 << PD5));
+		//digitalWrite(CLOCK_PIN, 1);
+		//digitalWrite(CLOCK_PIN, 0);
 
 		data = data >> 1;
 	}
 
-	digitalWrite(LATCH_PIN, 1);
+	PORTD |= (1 << PD7);
+	PORTD &= (~(1 << PD7));
+	//digitalWrite(LATCH_PIN, 0);
+	//digitalWrite(LATCH_PIN, 1);
 }
