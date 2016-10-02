@@ -1,3 +1,4 @@
+#include <EEPROM.h>
 #define CLOCK_PIN 5
 #define DATA_PIN 8
 #define LATCH_PIN 7
@@ -9,7 +10,7 @@
 DS3231 rtc(SDA, SCL);
 
 
-#pragma region Word to pin mapping
+#pragma region Word mapping
 /*
 pin		word
 |-------|--
@@ -50,31 +51,75 @@ const byte digitToDisplay[12] = { 9, 5,10,2,0,3,8,6,19,4,7,18 };
 
 #pragma endregion
 
-#pragma region Birthdays definition
+#pragma region Birthdays related methods
 
-typedef struct Day
-{
-	byte date;
-	byte month;
-};
-const Day birthdays[]
-{
-	{10,2},
-	{16,2},
-	{14,4},
-	{29,8}
-};
-const byte birthdayCount = sizeof(birthdays) / 2;
+uint8_t birthdays[32];
 
-bool IsBirthday(byte date, byte month)
+void LoadBirthdaysFromEEPROM()
 {
-	byte i = 0;
-	for (i = 0; i < birthdayCount; i++)
+	for (uint8_t i = 0; i < 32; i++)
 	{
-		Day birthday = birthdays[i];
-		if (birthday.date == date && birthday.month == month)
-			return true;
+		birthdays[i] = EEPROM.read(i);
 	}
+}
+
+void AddBirthday(uint8_t day, uint8_t month)
+{
+	for (uint8_t i = 0; i < 32; i += 2)
+	{
+		if (birthdays[i]==0)
+		{
+			birthdays[i] = month;
+			birthdays[i + 1] = day;
+			EEPROM.write(i, month);
+			EEPROM.write(i + 1, day);
+			return;
+		}
+	}
+	Serial.println("Only 16 birthdays supported");
+}
+void RemoveBirthday(uint8_t day, uint8_t month)
+{
+	for (uint8_t i = 0; i < 32; i += 2)
+	{
+		if (birthdays[i] == month && birthdays[i + 1] == day)
+		{
+			birthdays[i] = 0;
+			birthdays[i + 1] = 0;
+
+			EEPROM.write(i, 0);
+			EEPROM.write(i + 1, 0);
+
+			break;
+		}
+	}
+
+
+}
+void PrintBirthdays()
+{
+	uint8_t counter;
+	for (uint8_t i = 0; i < 32; i += 2)
+	{
+		if (birthdays[i])
+		{
+			Serial.print(birthdays[i+1]);
+			Serial.print("/");
+			Serial.println(birthdays[i]);
+			counter++;
+		}
+	}
+	Serial.print("Total: ");
+	Serial.println(counter);
+
+}
+
+uint8_t IsBirthday(uint8_t date, uint8_t month)
+{
+	for (uint8_t i = 0; i < 32; i += 2)
+		if (month == birthdays[i] && date == birthdays[i + 1])
+			return true;
+
 	return false;
 }
 
@@ -153,91 +198,22 @@ bool IsSummerTime(uint8_t date, uint8_t month, uint16_t year)
 #pragma endregion
 
 
-unsigned long GetActiveWords(Time time)
+//Methods for displaying rgb-light
+#pragma region BirthdayLight
+
+void Partytest()
 {
-	unsigned long display = 0;
+	bitSet(TIMSK1, OCIE1A);
+	//Celear the display
+	ClearDisplay();
 
-	uint8_t	hour = time.hour;
-	uint8_t min = time.min;
+	ShiftPWM.SetAllRGB(0, 255, 0);
 
-	if (min < 3)
-	{
-
-	}
-	else if (min < 8)
-	{
-		display |= 1L << FEM;
-		display |= 1L << OVER;
-	}
-	else if (min < 13)
-	{
-		display |= 1L << TIO;
-		display |= 1L << OVER;
-	}
-	else if (min < 18)
-	{
-		display |= 1L << KVART;
-		display |= 1L << OVER;
-	}
-	else if (min < 23)
-	{
-		display |= 1L << TJUGO;
-		display |= 1L << OVER;
-	}
-	else if (min < 28)
-	{
-		display |= 1L << FEM;
-		display |= 1L << I;
-		display |= 1L << HALV;
-	}
-	else if (min < 33)
-	{
-		display |= 1L << HALV;
-	}
-	else if (min < 38)
-	{
-		display |= 1L << FEM;
-		display |= 1L << OVER;
-		display |= 1L << HALV;
-	}
-	else if (min < 43)
-	{
-		display |= 1L << TJUGO;
-		display |= 1L << I;
-	}
-	else if (min < 48)
-	{
-		display |= 1L << KVART;
-		display |= 1L << I;
-	}
-	else if (min < 53)
-	{
-		display |= 1L << TIO;
-		display |= 1L << I;
-	}
-	else if (min < 58)
-	{
-		display |= 1L << FEM;
-		display |= 1L << I;
-	}
-	Serial.print("After min: ");
-	Serial.println(display, HEX);
-
-
-	if (IsSummerTime(time.date, time.mon, time.year))
-		hour++;
-
-	if (min >= 23)
-		hour++;
-
-	hour %= 12;
-
-	display |= 1L << digitToDisplay[hour];
-	Serial.print("Returning: ");
-	Serial.println(display, HEX);
-	return display;
+	delay(1000);
+	ShiftPWM.SetAll(0);
+	delay(10);
+	bitClear(TIMSK1, OCIE1A);
 }
-
 
 void Party()
 {
@@ -306,61 +282,178 @@ void rgbLedRainbow(int numRGBLeds, int delayVal, int numCycles, int rainbowWidth
 	}
 }
 
-#define WAITSERIAL() while(Serial.available()==0){}
+#pragma endregion
+
+//Method that returns what words should be turned on at the time
+unsigned long GetActiveWords(Time time)
+{
+	unsigned long display = 0;
+
+	uint8_t	hour = time.hour;
+	uint8_t min = time.min;
+
+	if (min < 3)
+	{
+
+	}
+	else if (min < 8)
+	{
+		display |= 1L << FEM;
+		display |= 1L << OVER;
+	}
+	else if (min < 13)
+	{
+		display |= 1L << TIO;
+		display |= 1L << OVER;
+	}
+	else if (min < 18)
+	{
+		display |= 1L << KVART;
+		display |= 1L << OVER;
+	}
+	else if (min < 23)
+	{
+		display |= 1L << TJUGO;
+		display |= 1L << OVER;
+	}
+	else if (min < 28)
+	{
+		display |= 1L << FEM;
+		display |= 1L << I;
+		display |= 1L << HALV;
+	}
+	else if (min < 33)
+	{
+		display |= 1L << HALV;
+	}
+	else if (min < 38)
+	{
+		display |= 1L << FEM;
+		display |= 1L << OVER;
+		display |= 1L << HALV;
+	}
+	else if (min < 43)
+	{
+		display |= 1L << TJUGO;
+		display |= 1L << I;
+	}
+	else if (min < 48)
+	{
+		display |= 1L << KVART;
+		display |= 1L << I;
+	}
+	else if (min < 53)
+	{
+		display |= 1L << TIO;
+		display |= 1L << I;
+	}
+	else if (min < 58)
+	{
+		display |= 1L << FEM;
+		display |= 1L << I;
+	}
+
+
+	if (IsSummerTime(time.date, time.mon, time.year))
+		hour++;
+
+	if (min >= 23)
+		hour++;
+
+	hour %= 12;
+
+	display |= 1L << digitToDisplay[hour];
+	return display;
+}
+
+
+
+#define WAITSERIAL() while(Serial.available()==0){if(millis()>timeout){return;}}
 void HandleSerial()
 {
-
 	Serial.print(rtc.getDateStr());
 	Serial.print(" -- ");
 	Serial.println(rtc.getTimeStr());
 
 	if (Serial.available() > 0)
 	{
-		String str = Serial.readString();
-		if (str == "set")
+		unsigned long timeout = millis() + 100000UL;
+
+		String message = Serial.readString();
+		message.toLowerCase();
+
+		if (message == "settime")
 		{
-			int day, month, year, hour, min, sec;
+			uint8_t hour, min;
 
-			Serial.println("Set day:");
-			WAITSERIAL();
-			day = Serial.parseInt();
-
-			Serial.println("Set month:");
-			WAITSERIAL();
-			month = Serial.parseInt();
-
-			Serial.println("Set year:");
-			WAITSERIAL();
-			year = Serial.parseInt();
-
-			Serial.println("Set hour:");
+			Serial.println("Hour:");
 			WAITSERIAL();
 			hour = Serial.parseInt();
 
-			Serial.println("Set minute:");
+			Serial.println("Minute:");
 			WAITSERIAL();
 			min = Serial.parseInt();
 
-			Serial.println("Set second:");
-			WAITSERIAL();
-			sec = Serial.parseInt();
 
-			if (IsSummerTime(day, month, year))
-			{
+			Time time = rtc.getTime();
+			if (IsSummerTime(time.date, time.mon, time.year))
 				hour--;
-			}
 
-			rtc.setDate(day, month, year);
-			rtc.setTime(hour, min, sec);
-
-
-
-
-
-			Serial.println("Time Set!");
+			rtc.setTime(hour, min, 0);
 		}
+		else if (message == "setdate")
+		{
+			uint16_t year;
+			uint8_t mon, day;
 
+			Serial.println("Year:");
+			WAITSERIAL();
+			year = Serial.parseInt();
 
+			Serial.println("Month:");
+			WAITSERIAL();
+			mon = Serial.parseInt();
+
+			Serial.println("Day:");
+			WAITSERIAL();
+			day = Serial.parseInt();
+
+			rtc.setDate(day, mon, year);
+		}
+		else if (message == "birthdays")
+		{
+			PrintBirthdays();
+		}
+		else if (message == "addbirthday")
+		{
+			uint8_t day, month;
+			Serial.println("Month:");
+			WAITSERIAL();
+			month = Serial.parseInt();
+
+			Serial.println("Day:");
+			WAITSERIAL();
+			day = Serial.parseInt();
+
+			AddBirthday(day, month);
+		}
+		else if (message=="removebirthday")
+		{
+			uint8_t day, month;
+			Serial.println("Month:");
+			WAITSERIAL();
+			month = Serial.parseInt();
+
+			Serial.println("Day:");
+			WAITSERIAL();
+			day = Serial.parseInt();
+
+			RemoveBirthday(day, month);
+		}
+		else
+		{
+			Serial.println("Command not recognized");
+		}
 
 	}
 
@@ -374,7 +467,6 @@ void setup()
 	pinMode(CLOCK_PIN, OUTPUT);
 	pinMode(DATA_PIN, OUTPUT);
 	pinMode(LATCH_PIN, OUTPUT);
-
 
 	ClearDisplay();
 
@@ -398,6 +490,7 @@ void setup()
 	bitClear(TIMSK1, OCIE1A);
 
 	CalculateSummerTimeDates(rtc.getTime().year);
+	LoadBirthdaysFromEEPROM();
 	InitTimer2();
 }
 
@@ -409,16 +502,18 @@ void loop()
 
 	if (IsBirthday(time.date, time.mon))
 	{
-		Party();
+		//	Party();
+		Partytest();
 	}
 	else
 	{
 		unsigned long words = GetActiveWords(time);
 		UpdateDisplay(words);
+
+		delay(1000);
 	}
 
 
-	delay(1000);
 }
 
 
@@ -454,10 +549,10 @@ volatile uint8_t cycleDone;
 
 void Fade(unsigned long fadefrom, unsigned long fadeto)
 {
-	Serial.print("Fading from: ");
-	Serial.println(fadefrom, HEX);
-	Serial.print("To: ");
-	Serial.println(fadeto, HEX);
+	//Serial.print("Fading from: ");
+	//Serial.println(fadefrom, HEX);
+	//Serial.print("To: ");
+	//Serial.println(fadeto, HEX);
 
 	timer_counter = 0;
 
@@ -514,7 +609,7 @@ ISR(TIMER2_COMPA_vect)
 	cycleDone = 0;
 }
 
-
+//Initializes timer2 which is used in fade transitions
 void InitTimer2()
 {
 	cli();
@@ -523,7 +618,7 @@ void InitTimer2()
 	TCCR2B = 0;// same for TCCR2B
 	TCNT2 = 0;//initialize counter value to 0
 			  // set compare match register for 8khz increments
-	OCR2A = 20;// = (16*10^6) / (8000*8) - 1 (must be <256)
+	OCR2A = 20;//
 			   // turn on CTC mode
 	TCCR2A |= (1 << WGM21);
 	// Set CS21 bit for 8 prescaler
@@ -540,7 +635,7 @@ void ClearDisplay()
 	shift(0);
 }
 
-//displays whats stored in (display)
+//Writes data to the display registers
 void shift(unsigned long data)
 {
 	for (uint8_t i = 0; i < 20; i++) {
@@ -548,18 +643,13 @@ void shift(unsigned long data)
 			PORTB |= (1 << PB0);
 		else
 			PORTB &= (~(1 << PB0));
-		//digitalWrite(DATA_PIN, data & 0b0001);
 
 		PORTD |= (1 << PD5);
 		PORTD &= (~(1 << PD5));
-		//digitalWrite(CLOCK_PIN, 1);
-		//digitalWrite(CLOCK_PIN, 0);
 
 		data = data >> 1;
 	}
 
 	PORTD |= (1 << PD7);
 	PORTD &= (~(1 << PD7));
-	//digitalWrite(LATCH_PIN, 0);
-	//digitalWrite(LATCH_PIN, 1);
 }
